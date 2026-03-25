@@ -34,15 +34,14 @@ class FinanceSummary extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("📊 СЕБЕСТОИМОСТЬ", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF8B2346))),
+              const Text("📊 СЕБЕСТОИМОСТЬ", 
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF8B2346))),
               const SizedBox(height: 12),
-              _buildRow("Ткань:", fabricCost),
+              _buildRow("Ткань основная:", fabricCost),
               _buildRow("Пошив (швея):", sewingCostSeamstress),
-              _buildRow("Пошив (мой):", sewingCostMy),
               _buildRow("Профиль:", profileCost),
-              _buildRow("Наценка профиль:", profileMarkup),
               const Divider(),
-              _buildBoldRow("💰 ИТОГО:", totalCost, Colors.orange),
+              _buildBoldRow("💰 ИТОГО себестоимость:", totalCost, Colors.orange),
             ],
           ),
         ),
@@ -50,7 +49,7 @@ class FinanceSummary extends StatelessWidget {
 
       const SizedBox(height: 16),
 
-      // ✅ ДОХОДЫ
+      // ✅ МОИ ДОХОДЫ
       Card(
         color: Colors.green.shade50,
         child: Padding(
@@ -58,17 +57,20 @@ class FinanceSummary extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("💵 ДОХОДЫ", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF8B2346))),
+              const Text("💵 МОИ ДОХОДЫ", 
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF8B2346))),
               const SizedBox(height: 12),
               _buildBoldRow("👤 Клиент платит:", clientPrice, Colors.green),
+              _buildRow("Мой пошив:", sewingCostMy),
+              _buildRow("Наценка профиль:", profileMarkup),
               const Divider(),
               _buildBoldRow(
-                "✅ ПРИБЫЛЬ:",
+                "✅ МОЯ ПРИБЫЛЬ:",
                 profit,
                 profit >= 0 ? Colors.green : Colors.red,
                 fontSize: 18,
               ),
-              if (profit > 0) ...[
+              if (clientPrice > 0) ...[
                 const SizedBox(height: 8),
                 Text(
                   "📈 Маржа: ${((profit / clientPrice) * 100).toStringAsFixed(1)}%",
@@ -88,7 +90,7 @@ class FinanceSummary extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
-        Text("${value.toStringAsFixed(0)} руб", style: const TextStyle(fontSize: 14)),
+        Text("${value.toStringAsFixed(0)} руб", style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
       ],
     ),
   );

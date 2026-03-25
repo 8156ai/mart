@@ -5,19 +5,21 @@ import '../../domain/entities/room.dart';
 import '../providers/client_provider.dart';
 import '../../../pricing/domain/seamstress_prices.dart';
 import '../../../pricing/domain/my_prices.dart';
+import '../../../pricing/presentation/providers/pricing_provider.dart';
 import '../../../../shared/widgets/custom_input.dart';
 import '../../../../shared/widgets/custom_dropdown.dart';
 import '../../../../shared/widgets/custom_checkbox.dart';
 import '../widgets/cutting_preview.dart';
-import '../widgets/finance_summary.dart';
+import '../widgets/sewing_cost_summary.dart';
+import './technical_task_viewer.dart';
 import '../../../../shared/services/technical_task_generator.dart';
 import '../../../../shared/services/invoice_generator.dart';
 import '../../../../shared/services/validators.dart';
 import '../../../../shared/services/notification_service.dart';
 import '../../../../shared/services/calculation_service.dart';
 import '../../../../shared/services/periodic_notification_service.dart';
-import 'archive_page.dart';
-import 'calendar_page.dart';
+import './archive_page.dart';
+import './calendar_page.dart';
 import '../../../pricing/presentation/screens/tariff_settings_page.dart';
 
 class ProjectPage extends ConsumerStatefulWidget {
@@ -58,7 +60,7 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
   bool _isLining = false;
   bool _isSeam = false;
   bool _isRings = false;
-  bool _hideSeamstressData = false;
+  bool _hideSewingCosts = false;
 
   double _panels = 2;
   double _fabricMeters = 0;
@@ -81,6 +83,7 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
   Room? _editingRoom;
 
   List<Map<String, dynamic>> _additionalItems = [];
+  Map<String, Room> _selectedRooms = {};
 
   final List<Map<String, String>> _curtainTypes = [
     {'id': 'tulle', 'name': 'Тюль'},
@@ -187,62 +190,130 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
   }
 
   void _calculate() {
-    _error = null;
+  _error = null;
 
-    final cornice = double.tryParse(_corniceController.text) ?? 0;
-    final coef = double.tryParse(_coefController.text) ?? 2;
-    final height = double.tryParse(_heightController.text) ?? 0;
-    final left = double.tryParse(_leftHemController.text) ?? 0;
-    final right = double.tryParse(_rightHemController.text) ?? 0;
-    final top = double.tryParse(_topHemController.text) ?? 0;
-    final bottom = double.tryParse(_bottomHemController.text) ?? 0;
-    final rollWidth = double.tryParse(_rollWidthController.text) ?? 280;
-    final fabricPrice = double.tryParse(_fabricPriceController.text) ?? 0;
-    final linningPrice = double.tryParse(_linningPriceController.text) ?? 0;
-    final profilePrice = double.tryParse(_profilePriceController.text) ?? 0;
+  final cornice = double.tryParse(_corniceController.text) ?? 0;
+  final coef = double.tryParse(_coefController.text) ?? 2;
+  final height = double.tryParse(_heightController.text) ?? 0;
+  final left = double.tryParse(_leftHemController.text) ?? 0;
+  final right = double.tryParse(_rightHemController.text) ?? 0;
+  final top = double.tryParse(_topHemController.text) ?? 0;
+  final bottom = double.tryParse(_bottomHemController.text) ?? 0;
+  final rollWidth = double.tryParse(_rollWidthController.text) ?? 280;
+  final fabricPrice = double.tryParse(_fabricPriceController.text) ?? 0;
+  final linningPrice = double.tryParse(_linningPriceController.text) ?? 0;
+  final profilePrice = double.tryParse(_profilePriceController.text) ?? 0;
 
-    _panels = double.tryParse(_panelsController.text) ?? 2;
-    
-    if (_profileMarkupController.text.isEmpty) {
-      _profileMarkup = 0;
-    } else {
-      _profileMarkup = double.tryParse(_profileMarkupController.text) ?? 0;
-    }
+  _panels = double.tryParse(_panelsController.text) ?? 2;
 
-    final result = CalculationService.calculate(
-      curtainType: _curtainType,
-      cornice: cornice,
-      height: height,
-      coef: coef,
-      topHem: top,
-      bottomHem: bottom,
-      leftHem: left,
-      rightHem: right,
-      rollWidth: rollWidth,
-      fabricPrice: fabricPrice,
-      linningPrice: linningPrice,
-      profilePrice: profilePrice,
-      profileMarkup: _profileMarkup,
-      isLining: _isLining,
-      panels: _panels,
-      sewingCostSeamstress: _sewingCostSeamstress,
-      sewingCostMy: _sewingCostMy,
-      additionalItems: _additionalItems,
-    );
-
-    setState(() {
-      _error = result.error;
-      _fabricMeters = result.fabricMeters;
-      _linningMeters = result.linningMeters;
-      _fabricCostValue = result.fabricCostValue;
-      _linningCostValue = result.linningCostValue;
-      _profileCostWithMarkup = result.profileCostWithMarkup;
-      _clientPrice = result.clientPrice;
-      _totalCost = result.totalCost;
-      _profit = result.profit;
-      _additionalItems = [..._additionalItems];
-    });
+  if (_profileMarkupController.text.isEmpty) {
+    _profileMarkup = 0;
+  } else {
+    _profileMarkup = double.tryParse(_profileMarkupController.text) ?? 0;
   }
+
+  final seamstressPrices = ref.read(seamstressPricesProvider);
+  final myPrices = ref.read(myPricesProvider);
+
+  // ============= ПРАВИЛЬНЫЙ РАСЧЕТ ЦЕН ПОШИВА =============
+  double sewingPricePerMeter = 0;
+  double sewingMarkupPercent = 0;
+  double ringPrice = seamstressPrices['romanRing'] ?? 20;
+  bool useRings = _isRings;
+  
+  // ✅ ВЫБОР ЦЕНЫ ПОШИВА В ЗАВИСИМОСТИ ОТ ТИПА ШТОР
+  switch (_curtainType) {
+    case 'tulle':
+      sewingPricePerMeter = seamstressPrices['curtainsBase'] ?? 350;
+      sewingMarkupPercent = ((myPrices['curtainsBase'] ?? 1000) / sewingPricePerMeter - 1) * 100;
+      break;
+      
+    case 'curtains':
+      sewingPricePerMeter = seamstressPrices['curtainsBase'] ?? 350;
+      sewingMarkupPercent = ((myPrices['curtainsBase'] ?? 1000) / sewingPricePerMeter - 1) * 100;
+      break;
+      
+    case 'curtains_lining':
+      sewingPricePerMeter = seamstressPrices['curtainsLining'] ?? 520;
+      sewingMarkupPercent = ((myPrices['curtainsLining'] ?? 1450) / sewingPricePerMeter - 1) * 100;
+      break;
+      
+    case 'roman':
+      sewingPricePerMeter = seamstressPrices['romanTape'] ?? 680;
+      sewingMarkupPercent = ((myPrices['romanTape'] ?? 1320) / sewingPricePerMeter - 1) * 100;
+      break;
+      
+    case 'roman_lining':
+      sewingPricePerMeter = seamstressPrices['romanLining'] ?? 900;
+      sewingMarkupPercent = ((myPrices['romanLining'] ?? 1600) / sewingPricePerMeter - 1) * 100;
+      break;
+  }
+  
+  // ✅ ДОБАВЛЯЕМ НАДБАВКИ (только для портьер и тюля)
+  if (_curtainType == 'tulle' || _curtainType == 'curtains' || _curtainType == 'curtains_lining') {
+    // Высота более 3м
+    if (_is3m && height > 300) {
+      double extraPercent = seamstressPrices['over3mPercent'] ?? 0.1;
+      sewingPricePerMeter *= (1 + extraPercent);
+      sewingMarkupPercent += (myPrices['over3mPercent'] ?? 0.1) * 100;
+    }
+    
+    // Сложная ткань
+    if (_isComplex) {
+      double extraPercent = seamstressPrices['complexFabricPercent'] ?? 0.2;
+      sewingPricePerMeter *= (1 + extraPercent);
+      sewingMarkupPercent += (myPrices['complexFabricPercent'] ?? 0.2) * 100;
+    }
+    
+    // Ручная складка
+    if (_isHandFold) {
+      double handFoldSeamstress = seamstressPrices['handFold'] ?? 130;
+      double handFoldMy = myPrices['handFold'] ?? 1250;
+      sewingPricePerMeter += handFoldSeamstress;
+      sewingMarkupPercent = ((handFoldMy / handFoldSeamstress) - 1) * 100;
+    }
+  }
+  
+  // ✅ ВЫЗОВ СЕРВИСА РАСЧЕТА
+  final result = CalculationService.calculate(
+    curtainType: _curtainType,
+    cornice: cornice,
+    height: height,
+    coef: coef,
+    topHem: top,
+    bottomHem: bottom,
+    leftHem: left,
+    rightHem: right,
+    rollWidth: rollWidth,
+    fabricPrice: fabricPrice,
+    linningPrice: linningPrice,
+    profilePrice: profilePrice,
+    profileMarkup: _profileMarkup,
+    isLining: _isLining,
+    panels: _panels,
+    sewingPricePerMeter: sewingPricePerMeter,
+    sewingMarkupPercent: sewingMarkupPercent,
+    ringPrice: ringPrice,
+    useRings: useRings,
+    additionalItems: _additionalItems,
+  );
+
+  setState(() {
+    _error = result.error;
+    _fabricMeters = result.fabricMeters;
+    _linningMeters = result.linningMeters;
+    _fabricCostValue = result.fabricCostValue;
+    _linningCostValue = result.linningCostValue;
+    _sewingCostSeamstress = result.sewingCostSeamstress;
+    _sewingCostMy = result.sewingCostMy;
+    _profileCost = result.profileCost;
+    _profileCostWithMarkup = result.profileCostWithMarkup;
+    _clientPrice = result.clientPrice;
+    _totalCost = result.totalCost;
+    _profit = result.profit;
+    _additionalItems = [..._additionalItems];
+  });
+}
 
   void _loadRoom(Room room) {
     setState(() {
@@ -254,19 +325,19 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
         DateTime.now().add(const Duration(days: 7)).toString().split(' ')[0]);
 
       final specs = room.technicalSpecs;
-      _corniceController.text = specs['cornice'].toString();
-      _heightController.text = specs['height'].toString();
-      _coefController.text = specs['coef'].toString();
-      _topHemController.text = specs['topHem'].toString();
-      _bottomHemController.text = specs['bottomHem'].toString();
-      _leftHemController.text = specs['leftHem'].toString();
-      _rightHemController.text = specs['rightHem'].toString();
-      _fabricPriceController.text = specs['fabricPrice'].toString();
-      _linningPriceController.text = specs['linningPrice'].toString();
-      _profilePriceController.text = specs['profilePrice'].toString();
-      _profileMarkupController.text = specs['profileMarkup'].toString();
+      _corniceController.text = specs['cornice'].toStringAsFixed(0);
+      _heightController.text = specs['height'].toStringAsFixed(0);
+      _coefController.text = specs['coef'].toStringAsFixed(1);
+      _topHemController.text = specs['topHem'].toStringAsFixed(0);
+      _bottomHemController.text = specs['bottomHem'].toStringAsFixed(0);
+      _leftHemController.text = specs['leftHem'].toStringAsFixed(0);
+      _rightHemController.text = specs['rightHem'].toStringAsFixed(0);
+      _fabricPriceController.text = specs['fabricPrice'].toStringAsFixed(0);
+      _linningPriceController.text = specs['linningPrice'].toStringAsFixed(0);
+      _profilePriceController.text = specs['profilePrice'].toStringAsFixed(0);
+      _profileMarkupController.text = specs['profileMarkup'].toStringAsFixed(0);
       _panelsController.text = specs['panels'].toStringAsFixed(0);
-
+      _ringsController.text = (specs['ringsQty'] ?? 0).toStringAsFixed(0);
       _curtainType = specs['curtainType'] ?? 'curtains';
       _status = room.isCompleted ? 'done' : 'work';
       _isHandFold = specs['isHandFold'] ?? false;
@@ -322,7 +393,6 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
       techComment: _techCommentController.text,
       isHandFold: _isHandFold,
       isTape: _isSeam,
-      // ❌ УБРАТЬ deadline
     );
   }
 
@@ -485,6 +555,350 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
     );
   }
 
+  void _showAdditionalItemsDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('📦 ДОПОЛНИТЕЛЬНЫЕ ИЗДЕЛИЯ', 
+            style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B2346))),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ..._additionalItems.asMap().entries.map((entry) {
+                  int idx = entry.key;
+                  var item = entry.value;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: TextEditingController(text: item['name'] ?? ''),
+                            decoration: const InputDecoration(
+                              labelText: 'Название', 
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            ),
+                            onChanged: (val) {
+                              _additionalItems[idx]['name'] = val;
+                              setState(() {});
+                              this.setState(_calculate);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          width: 80,
+                          child: TextField(
+                            controller: TextEditingController(text: (item['price'] ?? 0).toStringAsFixed(0)),
+                            decoration: const InputDecoration(
+                              labelText: 'Цена', 
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                            ),
+                            keyboardType: TextInputType.number,
+                            onChanged: (val) {
+                              _additionalItems[idx]['price'] = double.tryParse(val) ?? 0;
+                              setState(() {});
+                              this.setState(_calculate);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () {
+                            this.setState(() {
+                              _additionalItems.removeAt(idx);
+                              _calculate();
+                            });
+                            NotificationService.success(context, '🗑️ Позиция удалена');
+                            Navigator.pop(ctx);
+                            _showAdditionalItemsDialog();
+                          },
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                this.setState(() {
+                  _additionalItems.add({'name': '', 'price': 0});
+                  _calculate();
+                });
+                setState(() {});
+                NotificationService.success(context, '✅ Новая позиция добавлена');
+              },
+              child: const Text('➕ Добавить позицию', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('✅ Готово'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showIncomeDetails() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          final clients = ref.read(clientNotifierProvider);
+          List<MapEntry<String, Room>> allRooms = [];
+          
+          for (var client in clients) {
+            for (var room in client.rooms) {
+              allRooms.add(MapEntry('${client.name} - ${room.name}', room));
+            }
+          }
+
+          return DraggableScrollableSheet(
+            expand: false,
+            initialChildSize: 0.9,
+            builder: (context, scrollController) => Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text('💵 МОИ ДОХОДЫ ПО СДЕЛКАМ', 
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF8B2346))),
+                  const SizedBox(height: 12),
+                  
+                  Wrap(
+                    spacing: 8,
+                    children: allRooms.asMap().entries.map((entry) {
+                      int idx = entry.key;
+                      String label = entry.value.key;
+                      
+                      bool isSelected = _selectedRooms.containsKey(label);
+                      
+                      return FilterChip(
+                        label: Text(label, style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.black,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        )),
+                        selected: isSelected,
+                        backgroundColor: Colors.grey.shade200,
+                        selectedColor: const Color(0xFF8B2346),
+                        onSelected: (bool value) {
+                          setState(() {
+                            if (value) {
+                              _selectedRooms[label] = allRooms[idx].value;
+                            } else {
+                              _selectedRooms.remove(label);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      children: [
+                        if (_selectedRooms.isNotEmpty) ...[
+                          ..._selectedRooms.entries.map((entry) {
+                            String label = entry.key;
+                            Room room = entry.value;
+                            double profit = room.clientPrice - room.totalCost;
+                            
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              color: Colors.blue.shade50,
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text('Клиент платит:', style: TextStyle(fontSize: 12)),
+                                        Text('${room.clientPrice.toStringAsFixed(0)} руб', 
+                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green)),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text('Себестоимость:', style: TextStyle(fontSize: 12)),
+                                        Text('${room.totalCost.toStringAsFixed(0)} руб', 
+                                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                                      ],
+                                    ),
+                                    const Divider(),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        const Text('Прибыль:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                                        Text('${profit.toStringAsFixed(0)} руб', 
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            color: profit >= 0 ? Colors.green : Colors.red,
+                                          )),
+                                      ],
+                                    ),
+                                    if (room.clientPrice > 0) ...[
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Маржа: ${((profit / room.clientPrice) * 100).toStringAsFixed(1)}%',
+                                        style: const TextStyle(fontSize: 12, color: Colors.blue, fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            );
+                          }),
+                          const Divider(thickness: 2),
+                          Card(
+                            color: Colors.green.shade100,
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('ИТОГО ПО ВЫБРАННЫМ СДЕЛКАМ', 
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF8B2346))),
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Клиент платит:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                      Text('${_selectedRooms.values.fold<double>(0, (sum, r) => sum + r.clientPrice).toStringAsFixed(0)} руб', 
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.green)),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('Себестоимость:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                      Text('${_selectedRooms.values.fold<double>(0, (sum, r) => sum + r.totalCost).toStringAsFixed(0)} руб', 
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: Colors.orange)),
+                                    ],
+                                  ),
+                                  const Divider(thickness: 2),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text('ПРИБЫЛЬ:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                      Text(
+                                        '${(_selectedRooms.values.fold<double>(0, (sum, r) => sum + (r.clientPrice - r.totalCost))).toStringAsFixed(0)} руб',
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Colors.green),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ] else ...[
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Text('Выберите сделки выше', 
+                                style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showTechnicalTasksList() {
+    final clients = ref.read(clientNotifierProvider);
+    
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        builder: (context, scrollController) => Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text('📋 ТЕХНИЧЕСКИЕ ЗАДАНИЯ', 
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF8B2346))),
+              const SizedBox(height: 16),
+              
+              Expanded(
+                child: ListView.builder(
+                  controller: scrollController,
+                  itemCount: clients.fold<int>(0, (sum, c) => sum + c.rooms.length),
+                  itemBuilder: (context, index) {
+                    int roomIndex = 0;
+                    late String clientName;
+                    late Room room;
+                    
+                    for (var client in clients) {
+                      if (index < roomIndex + client.rooms.length) {
+                        clientName = client.name;
+                        room = client.rooms[index - roomIndex];
+                        break;
+                      }
+                      roomIndex += client.rooms.length;
+                    }
+                    
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: ListTile(
+                        leading: const Icon(Icons.description, color: Color(0xFF8B2346)),
+                        title: Text(room.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text(clientName, style: const TextStyle(fontSize: 12)),
+                        trailing: const Icon(Icons.arrow_forward),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => TechnicalTaskViewer(
+                                clientName: clientName,
+                                roomName: room.name,
+                                room: room,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final clients = ref.watch(clientNotifierProvider);
@@ -496,37 +910,19 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.attach_money),
-            tooltip: 'Доходы',
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (ctx) => Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('💵 МОИ ДОХОДЫ', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF8B2346))),
-                      const SizedBox(height: 20),
-                      _buildIncomeRow('Клиент платит', _clientPrice, Colors.green),
-                      _buildIncomeRow('Себестоимость', _totalCost, Colors.orange),
-                      const Divider(),
-                      _buildIncomeRow('ПРИБЫЛЬ', _profit, _profit >= 0 ? Colors.green : Colors.red, bold: true),
-                      if (_clientPrice > 0) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          'Маржа: ${((_profit / _clientPrice) * 100).toStringAsFixed(1)}%',
-                          style: const TextStyle(fontSize: 14, color: Colors.green, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            },
+            tooltip: 'Мои доходы',
+            onPressed: _showIncomeDetails,
           ),
+          
+          IconButton(
+            icon: const Icon(Icons.description),
+            tooltip: 'Технические задания',
+            onPressed: _showTechnicalTasksList,
+          ),
+          
           IconButton(
             icon: const Icon(Icons.person_add),
-            tooltip: 'Новый',
+            tooltip: 'Новый заказ',
             onPressed: () {
               _clearForm();
               NotificationService.info(context, '✏️ Новый заказ');
@@ -550,7 +946,7 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
           ),
           IconButton(
             icon: const Icon(Icons.calendar_month),
-            tooltip: 'Календарь сделок',
+            tooltip: 'Календарь',
             onPressed: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const CalendarPage()),
@@ -705,15 +1101,15 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
             ),
             Row(
               children: [
-                Expanded(child: CustomInput(label: 'Лево', controller: _leftHemController, isNumber: true)),
+                Expanded(child: CustomInput(label: 'Слева', controller: _leftHemController, isNumber: true)),
                 const SizedBox(width: 8),
-                Expanded(child: CustomInput(label: 'Право', controller: _rightHemController, isNumber: true)),
+                Expanded(child: CustomInput(label: 'Справа', controller: _rightHemController, isNumber: true)),
               ],
             ),
             const SizedBox(height: 20),
-            const Text('ТКАНИ И РАСЧЕТЫ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            CustomInput(label: 'Цена основной ткани руб м', controller: _fabricPriceController, isNumber: true),
-            CustomInput(label: 'Цена подкладочной ткани руб м', controller: _linningPriceController, isNumber: true),
+            const Text('ТКАНИ И РАСЧЁТЫ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            CustomInput(label: 'Цена основной ткани руб/м', controller: _fabricPriceController, isNumber: true),
+            CustomInput(label: 'Цена подкладочной ткани руб/м', controller: _linningPriceController, isNumber: true),
             Row(
               children: [
                 Expanded(child: CustomInput(label: 'Полотен', controller: _panelsController, isNumber: true)),
@@ -721,7 +1117,7 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
                 Expanded(child: CustomInput(label: 'Профиль руб/м', controller: _profilePriceController, isNumber: true)),
               ],
             ),
-            CustomInput(label: 'Наценка профиль руб', controller: _profileMarkupController, isNumber: true),
+            CustomInput(label: 'Надбавка профиль руб', controller: _profileMarkupController, isNumber: true),
             const SizedBox(height: 20),
             const Text('СРОК ИСПОЛНЕНИЯ ЗАКАЗА', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             TextField(
@@ -758,106 +1154,31 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
                   seamstressDeadline: deadline,
                 );
 
-                NotificationService.success(context, '✅ Срок и напоминания установлены');
+                NotificationService.success(context, '✅ Срок и уведомления установлены');
               },
               icon: const Icon(Icons.notifications),
-              label: const Text('Установить срок и напоминания'),
+              label: const Text('Установить срок и уведомления'),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             ),
             const SizedBox(height: 20),
-            const Text('ДОП ИЗДЕЛИЯ', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            ..._additionalItems.asMap().entries.map((entry) {
-              int idx = entry.key;
-              var item = entry.value;
-              return Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: TextEditingController(text: item['name'] ?? ''),
-                      decoration: const InputDecoration(labelText: 'Название', border: OutlineInputBorder()),
-                      onChanged: (val) {
-                        _additionalItems[idx]['name'] = val;
-                        _calculate();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    width: 80,
-                    child: TextField(
-                      controller: TextEditingController(text: (item['price'] ?? 0).toString()),
-                      decoration: const InputDecoration(labelText: 'Цена', border: OutlineInputBorder()),
-                      keyboardType: TextInputType.number,
-                      onChanged: (val) {
-                        _additionalItems[idx]['price'] = double.tryParse(val) ?? 0;
-                        _calculate();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () {
-                      setState(() {
-                        _additionalItems.removeAt(idx);
-                        _calculate();
-                      });
-                      NotificationService.success(context, '🗑️ Позиция удалена');
-                    },
-                  ),
-                ],
-              );
-            }),
-            ElevatedButton.icon(
-              onPressed: () {
-                setState(() {
-                  _additionalItems.add({'name': '', 'price': 0});
-                  _calculate();
-                });
-                NotificationService.success(context, '✅ Новая позиция добавлена');
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Добавить'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            ),
-            const SizedBox(height: 20),
-            Card(
-              color: Colors.orange.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('🙈 Скрыть данные', style: TextStyle(fontWeight: FontWeight.w500)),
-                    Switch(
-                      value: _hideSeamstressData,
-                      onChanged: (val) => setState(() => _hideSeamstressData = val),
-                      activeColor: const Color(0xFF8B2346),
-                    ),
-                  ],
+
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  '📦 ДОПОЛНИТЕЛЬНЫЕ ИЗДЕЛИЯ (${_additionalItems.length})',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                 ),
-              ),
+                ElevatedButton.icon(
+                  onPressed: _showAdditionalItemsDialog,
+                  icon: const Icon(Icons.edit),
+                  label: const Text('Добавить'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.purple),
+                ),
+              ],
             ),
             const SizedBox(height: 20),
-            if (!_hideSeamstressData) ...[
-              const Text('ОПЦИИ ПОШИВА', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              CustomCheckbox(label: 'Высота над 3м', value: _is3m, onChanged: (v) => setState(() { _is3m = v!; _calculate(); })),
-              CustomCheckbox(label: 'Сложная ткань', value: _isComplex, onChanged: (v) => setState(() { _isComplex = v!; _calculate(); })),
-              CustomCheckbox(label: 'Ручная складка', value: _isHandFold, onChanged: (v) => setState(() { _isHandFold = v!; _calculate(); })),
-              CustomCheckbox(label: 'Шторная лента', value: _isSeam, onChanged: (v) => setState(() { _isSeam = v!; _calculate(); })),
-              CustomCheckbox(label: 'Подклад', value: _isLining, onChanged: (v) => setState(() { _isLining = v!; _calculate(); })),
-              const Padding(padding: EdgeInsets.only(top: 12), child: Text('РИМСКИЕ', style: TextStyle(fontWeight: FontWeight.w500))),
-              CustomCheckbox(label: 'Кольца', value: _isRings, onChanged: (v) => setState(() { _isRings = v!; _calculate(); })),
-              if (_isRings) CustomInput(label: 'Кол-во', controller: _ringsController, isNumber: true),
-              const SizedBox(height: 20),
-            ],
-            CustomDropdown(
-              label: 'Статус',
-              value: _status,
-              items: _statuses,
-              onChanged: (val) => setState(() => _status = val!),
-            ),
-            const SizedBox(height: 20),
+
             CuttingPreview(
               panels: _panels.toInt(),
               fabricMeters: _fabricMeters,
@@ -869,41 +1190,40 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
               rightHem: _rightHemController.text,
               error: _error,
             ),
-            Card(
-              color: Colors.green.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Ткань основная:', style: TextStyle(fontWeight: FontWeight.w600)),
-                        Text('${_fabricCostValue.toStringAsFixed(0)} руб', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Ткань подкладочная:', style: TextStyle(fontWeight: FontWeight.w600)),
-                        Text('${_linningCostValue.toStringAsFixed(0)} руб', style: const TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('ЦЕНА КЛИЕНТА:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                        Text('${_clientPrice.toStringAsFixed(0)} руб', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.green)),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
+            const SizedBox(height: 20),
+
+            SewingCostSummary(
+              sewingCostSeamstress: _sewingCostSeamstress,
+              sewingCostMy: _sewingCostMy,
+              clientPrice: _clientPrice,
+              fabricCost: _fabricCostValue,
+              linningCost: _linningCostValue,
+              totalCost: _totalCost,
+              myIncome: _sewingCostMy - _sewingCostSeamstress,
+              isHidden: _hideSewingCosts,
+              onToggle: () => setState(() => _hideSewingCosts = !_hideSewingCosts),
             ),
             const SizedBox(height: 20),
+
+            const Text('ОПЦИИ ПОШИВА', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            CustomCheckbox(label: 'Высота свыше 3м', value: _is3m, onChanged: (v) => setState(() { _is3m = v!; _calculate(); })),
+            CustomCheckbox(label: 'Сложная ткань', value: _isComplex, onChanged: (v) => setState(() { _isComplex = v!; _calculate(); })),
+            CustomCheckbox(label: 'Ручная складка', value: _isHandFold, onChanged: (v) => setState(() { _isHandFold = v!; _calculate(); })),
+            CustomCheckbox(label: 'Шторная лента', value: _isSeam, onChanged: (v) => setState(() { _isSeam = v!; _calculate(); })),
+            CustomCheckbox(label: 'Подклад', value: _isLining, onChanged: (v) => setState(() { _isLining = v!; _calculate(); })),
+            const Padding(padding: EdgeInsets.only(top: 12), child: Text('РИМСКИЕ ШТОРЫ', style: TextStyle(fontWeight: FontWeight.w500))),
+            CustomCheckbox(label: 'Кольца', value: _isRings, onChanged: (v) => setState(() { _isRings = v!; _calculate(); })),
+            if (_isRings) CustomInput(label: 'Кол-во', controller: _ringsController, isNumber: true),
+            const SizedBox(height: 20),
+
+            CustomDropdown(
+              label: 'Статус',
+              value: _status,
+              items: _statuses,
+              onChanged: (val) => setState(() => _status = val!),
+            ),
+            const SizedBox(height: 20),
+
             ElevatedButton.icon(
               onPressed: _saveClient,
               icon: const Icon(Icons.save),
@@ -938,10 +1258,10 @@ class _ProjectPageState extends ConsumerState<ProjectPage> {
                   rooms: rooms,
                   totalAmount: _clientPrice,
                 );
-                NotificationService.success(context, '📄 Счет создан');
+                NotificationService.success(context, '📄 Счёт создан');
               },
               icon: const Icon(Icons.receipt),
-              label: const Text('СЧЕТ'),
+              label: const Text('СЧЁТ'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 backgroundColor: Colors.purple,
